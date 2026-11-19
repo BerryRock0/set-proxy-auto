@@ -71,7 +71,7 @@ $("autoChangeToggle").onchange = async (e) =>
     else 
       for (const chosen of state.proxies)
       {
-        send({cmd: "testProxy", chosen.id})
+        send({cmd: "testProxy", id: chosen.id})
       
         if (chosen.ok)
         {
