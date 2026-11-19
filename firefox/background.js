@@ -16,12 +16,12 @@ let autochange = false;
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
 
-browser.storage.local.get(["proxies", "activeId", "proxyOn"])
+browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange"])
   .then((res) => {
     proxies = res.proxies || [];
     activeId = res.activeId || null;
     proxyOn = !!res.proxyOn;
-    proxyOn = !!res.autoChange;
+    autoChange = !!res.autoChange;
     updateIcon();
   });
 
@@ -91,7 +91,9 @@ function normalizeCfg(cfg)
 function toProxyInfo(cfg)
 {
   const info = {type: cfg.type, host: cfg.host, port: Number(cfg.port)};
-  if (cfg.type === "socks")
+  if (cfg.type === "socks4")
+    info.proxyDNS = false;  
+  if (cfg.type === "socks5")
     info.proxyDNS = true;
 
   return info;
