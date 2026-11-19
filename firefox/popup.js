@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-let state = { proxies: [], activeId: null, proxyOn: false, pingResults: {} };
+let state = { proxies: [], activeId: null, proxyOn: false, autoChange: false, pingResults: {} };
 // Ping cells for the currently rendered rows, keyed by proxy id.
 const pingEls = new Map();
 
