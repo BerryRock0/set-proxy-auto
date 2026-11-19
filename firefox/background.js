@@ -32,7 +32,7 @@ function saveState()
 
 function updateIcon()
 {
-  const state = proxyOn && activeId ? "on" : "off";
+  const state = (proxyOn || autoChange) && activeId ? "on" : "off";
   browser.browserAction.setIcon({
     path:
     {
