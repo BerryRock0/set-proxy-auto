@@ -12,6 +12,7 @@
 let proxies = [];
 let activeId = null;
 let proxyOn = false;
+let autochange = false;
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
 
@@ -20,12 +21,13 @@ browser.storage.local.get(["proxies", "activeId", "proxyOn"])
     proxies = res.proxies || [];
     activeId = res.activeId || null;
     proxyOn = !!res.proxyOn;
+    proxyOn = !!res.autoChange;
     updateIcon();
   });
 
 function saveState()
 {
-  return browser.storage.local.set({ proxies, activeId, proxyOn });
+  return browser.storage.local.set({proxies, activeId, proxyOn, autoChange});
 }
 
 function updateIcon()
@@ -50,7 +52,7 @@ function activeProxy()
 
 function snapshot()
 {
-  return { proxies, activeId, proxyOn, pingResults };
+  return {proxies, activeId, proxyOn, autoChange, pingResults};
 }
 
 function newId()
@@ -70,8 +72,8 @@ function normalizeCfg(cfg)
   if (!cfg || typeof cfg !== "object")
     return { error: "invalid proxy" };
 
-  if (type !== "socks" && type !== "http" && type !== "https")
-    return { error: "type must be socks, http or https"};
+  if (type !== "socks4" && type !== "socks5" && type !== "http" && type !== "https")
+    return { error: "non socks4|socks5|http|https type"};
 
   if (!host)
     return { error: "host required" };
@@ -146,6 +148,7 @@ async function probeProxy(cfg)
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT);
   const start = performance.now();
+
   try
   {
     const resp = await fetch(PROBE_URL + "?__proxytest=" + testId, {cache: "no-store", credentials: "omit", signal: ctrl.signal,});
@@ -173,10 +176,11 @@ browser.runtime.onMessage.addListener(async (msg) => {
     case "addProxy":
     {
       const norm = normalizeCfg(msg.cfg);
+      const id = newId();
+
       if (norm.error)
         return {...snapshot(), ok: false, error: norm.error};
-      
-      const id = newId();
+
       proxies.push({ id, ...norm.cfg});
       
       if (!activeId)
@@ -193,9 +197,7 @@ browser.runtime.onMessage.addListener(async (msg) => {
       delete pingResults[msg.id];
       
       if (activeId === msg.id)
-      {
         activeId = proxies.length ? proxies[0].id : null;
-      }
 
       await saveState();
       updateIcon();
@@ -220,6 +222,12 @@ browser.runtime.onMessage.addListener(async (msg) => {
 
     case "setProxyOn":
       proxyOn = !!msg.on;
+      await saveState();
+      updateIcon();
+      return snapshot();
+
+    case "setAutoChangeOn":
+      autoChange = !!msg.on
       await saveState();
       updateIcon();
       return snapshot();
