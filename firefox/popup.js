@@ -50,7 +50,8 @@ $("proxyAdd").onclick = async () => {
   render();
 };
 
-$("proxyToggle").onchange = async (e) => {
+$("proxyToggle").onchange = async (e) =>
+{
   state = await send({ cmd: "setProxyOn", on: e.target.checked });
   // Probe only on explicit toggle, not on every render — a probe is a real
   // network request with a 10s timeout.
@@ -58,15 +59,40 @@ $("proxyToggle").onchange = async (e) => {
   else setActivePing("");
 };
 
-function setActivePing(text, kind) {
+//autochange feature - no need searching working proxy 
+$("autoChangeToggle").onchange = async (e) =>
+{
+  state = await send({cmd: "setAutoChangeOn", on: e.target.checked});
+  if(state.autoChange)
+  {
+    const tP = send({ cmd: "testProxy", id });
+    if (tP.ok)
+      return;
+
+    for (const p of state.proxies)
+    {
+      if (!r.ok)
+        continue;
+      
+      send({ cmd: "selectProxy", id: p.id });
+    }
+  }
+};
+
+function setActivePing(text, kind)
+{
   const el = $("activePing");
   el.textContent = text;
   el.className = "active-ping" + (kind ? " " + kind : "");
 }
 
-async function refreshActivePing() {
-  if (!state.proxyOn || !state.activeId) return setActivePing("");
+async function refreshActivePing()
+{
+  if (!state.proxyOn || !state.activeId)
+    return setActivePing("");
+  
   setActivePing("...");
+
   const id = state.activeId;
   const r = await send({ cmd: "testProxy", id });
   // The popup may have been toggled off or reselected while we waited.
