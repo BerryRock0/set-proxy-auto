@@ -33,7 +33,7 @@ function currentFormCfg() {
 }
 
 function clearForm() {
-  $("proxyType").value = "socks5";
+  $("proxyType").value = "socks";
   $("proxyHost").value = "";
   $("proxyPort").value = "";
 }
@@ -55,33 +55,109 @@ $("proxyToggle").onchange = async (e) =>
   state = await send({ cmd: "setProxyOn", on: e.target.checked });
   // Probe only on explicit toggle, not on every render — a probe is a real
   // network request with a 10s timeout.
-  if (state.proxyOn) refreshActivePing();
+  if (state.proxyOn) {
+    refreshActivePing();
+    if (state.autoChange) runAutoChangeSearch();
+  }
   else setActivePing("");
 };
 
 //autochange feature - no need searching working proxy 
+// One auto-switch attempt is bounded by AUTOCHANGE_TIMEOUT; a timed-out probe
+// is treated as a failure so the search moves on instead of hanging forever.
+const AUTOCHANGE_TIMEOUT = 30000;
+
+function testWithTimeout(id, deadline) {
+  const ms = Math.max(0, deadline - Date.now());
+  if (ms <= 0) return Promise.resolve({ ok: false, error: "timeout" });
+  return Promise.race([
+    send({cmd: "testProxy", id}),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]).catch(() => ({ ok: false, error: "timeout" }));
+}
+
+// Checks the active proxy and switches to the first working one.
+async function runAutoChangeSearch() {
+  if (!state.autoChange) return;
+  // Nothing to switch while the extension is off or no proxy is selected.
+  if (!state.proxyOn || !state.activeId) return setActivePing("");
+
+  const deadline = Date.now() + (state.autoChangeTimeout || AUTOCHANGE_TIMEOUT);
+  const tP = await testWithTimeout(state.activeId, deadline);
+  if (tP.ok) return refreshActivePing();
+
+  setActivePing("searching for a working proxy...");
+  for (const chosen of state.proxies)
+  {
+    const r = await testWithTimeout(chosen.id, deadline);
+    if (r.ok)
+    {
+      state = await send({cmd: "selectProxy", id: chosen.id});
+      render();
+      if (state.proxyOn) refreshActivePing();
+      break;
+    }
+  }
+}
+
 $("autoChangeToggle").onchange = async (e) =>
 {
   state = await send({cmd: "setAutoChangeOn", on: e.target.checked});
-  if(state.autoChange)
-  {
-    const tP = send({cmd: "testProxy", id});
-    if (tP.ok)
-      return;
-    else 
-      for (const chosen of state.proxies)
-      {
-        send({cmd: "testProxy", id: chosen.id})
-      
-        if (chosen.ok)
-        {
-          send({cmd: "selectProxy", id: chosen.id});
-          break;
-        }
-        else
-          continue;
-      }
+  if (!state.autoChange) return;
+  if (e.target.checked) runAutoChangeSearch();
+};
+
+$("autoChangeTimeout").onchange = async (e) =>
+{
+  const ms = Number(e.target.value);
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  state = await send({cmd: "setAutoChangeTimeout", ms});
+};
+
+$("pingTimeout").onchange = async (e) =>
+{
+  const ms = Number(e.target.value);
+  if (!Number.isFinite(ms) || ms < 100) return;
+  state = await send({cmd: "setPingTimeout", ms});
+};
+
+// ---- bypass list ----
+function renderBypass() {
+  const list = $("bypassList");
+  list.innerHTML = "";
+  const hosts = state.bypass || [];
+  if (!hosts.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No bypass hosts.";
+    list.appendChild(empty);
+    return;
   }
+  for (const h of hosts) {
+    const div = document.createElement("div");
+    div.className = "proxy";
+    const addr = document.createElement("span");
+    addr.className = "addr";
+    addr.textContent = h;
+    addr.title = h;
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "×";
+    delBtn.onclick = async () => {
+      state = await send({cmd: "removeBypass", host: h});
+      renderBypass();
+    };
+    div.append(addr, delBtn);
+    list.appendChild(div);
+  }
+}
+
+$("bypassAdd").onclick = async () =>
+{
+  const host = $("bypassHost").value.trim();
+  if (!host) return;
+  state = await send({cmd: "addBypass", host});
+  $("bypassHost").value = "";
+  renderBypass();
 };
 
 function setActivePing(text, kind)
@@ -126,6 +202,11 @@ function showResult(el, r) {
 
 function render() {
   $("proxyToggle").checked = !!state.proxyOn;
+  $("autoChangeToggle").checked = !!state.autoChange;
+  const timeoutEl = $("autoChangeTimeout");
+  if (timeoutEl) timeoutEl.value = String(state.autoChangeTimeout || 30000);
+  const pingTimeoutEl = $("pingTimeout");
+  if (pingTimeoutEl) pingTimeoutEl.value = String(state.pingTimeout || 10000);
 
   const list = $("list");
   list.innerHTML = "";
@@ -232,5 +313,6 @@ send({ cmd: "getState" }).then((s) => {
   state = s;
   clearForm();
   render();
+  renderBypass();
   if (state.proxyOn && state.activeId) refreshActivePing();
 });

@@ -13,21 +13,28 @@ let proxies = [];
 let activeId = null;
 let proxyOn = false;
 let autoChange = false;
+let autoChangeTimeout = 30000;
+let pingTimeout = 10000;
+// Hosts that must never go through a proxy.
+let bypass = [];
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
 
-browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange"])
+browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange", "autoChangeTimeout", "pingTimeout", "bypass"])
   .then((res) => {
     proxies = res.proxies || [];
     activeId = res.activeId || null;
     proxyOn = !!res.proxyOn;
     autoChange = !!res.autoChange;
+    autoChangeTimeout = Number(res.autoChangeTimeout) || 30000;
+    pingTimeout = Number(res.pingTimeout) || 10000;
+    bypass = Array.isArray(res.bypass) ? res.bypass.map(String) : [];
     updateIcon();
   });
 
 function saveState()
 {
-  return browser.storage.local.set({proxies, activeId, proxyOn, autoChange});
+  return browser.storage.local.set({proxies, activeId, proxyOn, autoChange, autoChangeTimeout, pingTimeout, bypass});
 }
 
 function updateIcon()
@@ -50,9 +57,17 @@ function activeProxy()
   return proxies.find((p) => p.id === activeId) || null;
 }
 
+// Hosts from the bypass list never go through a proxy (exact or subdomain).
+function isBypassed(hostname)
+{
+  const host = String(hostname || "").toLowerCase();
+  if (!host) return false;
+  return bypass.some((b) => host === b || host.endsWith("." + b));
+}
+
 function snapshot()
 {
-  return {proxies, activeId, proxyOn, autoChange, pingResults};
+  return {proxies, activeId, proxyOn, autoChange, autoChangeTimeout, pingTimeout, bypass, pingResults};
 }
 
 function newId()
@@ -72,7 +87,7 @@ function normalizeCfg(cfg)
   if (!cfg || typeof cfg !== "object")
     return { error: "invalid proxy" };
 
-  if (type !== "socks4" && type !== "socks5" && type !== "http" && type !== "https")
+  if (type !== "socks" && type !== "http" && type !== "https")
     return { error: "non socks4|socks5|http|https type"};
 
   if (!host)
@@ -91,9 +106,7 @@ function normalizeCfg(cfg)
 function toProxyInfo(cfg)
 {
   const info = {type: cfg.type, host: cfg.host, port: Number(cfg.port)};
-  if (cfg.type === "socks4")
-    info.proxyDNS = false;  
-  if (cfg.type === "socks5")
+  if (cfg.type === "socks")
     info.proxyDNS = true;
 
   return info;
@@ -106,6 +119,11 @@ const pendingTests = new Map();
 
 browser.proxy.onRequest.addListener(
   (requestInfo) => {
+    // Bypass list wins: these hosts never go through a proxy.
+    let hostname = null;
+    try { hostname = new URL(requestInfo.url).hostname; } catch (e) {}
+    if (hostname && isBypassed(hostname)) return {type: "direct"};
+
     // Only parse the URL while tests are pending — this listener fires on
     // every browser request, so a new URL() per call is wasteful.
     if (pendingTests.size)
@@ -134,21 +152,45 @@ browser.proxy.onRequest.addListener(
 
 browser.proxy.onError.addListener((err) => {
   console.error("Proxy error:", err && err.message);
+  maybeAutoSwitch();
 });
+
+// AutoChange: when the active proxy errors out, switch to another working one.
+async function maybeAutoSwitch()
+{
+  if (!autoChange || !proxyOn) return;
+  const active = activeProxy();
+  if (!active) return;
+
+  const result = await probeProxy(active);
+  if (result.ok) return;
+
+  for (const chosen of proxies)
+  {
+    if (chosen.id === active.id) continue;
+    const r = await probeProxy(chosen);
+    if (r.ok)
+    {
+      activeId = chosen.id;
+      await saveState();
+      updateIcon();
+      return;
+    }
+  }
+}
 
 // ---- probe ----
 // Reachability check for one {type,host,port}, routed through the __proxytest
 // hook so it measures that specific proxy regardless of the global switch.
 // Shared by testProxy (a saved proxy) and testProxyCfg (an ad-hoc candidate).
 const PROBE_URL = "https://www.gstatic.com/generate_204";
-const PROBE_TIMEOUT = 10000;
 
 async function probeProxy(cfg)
 {
   const testId = newId();
   pendingTests.set(testId, cfg);
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT);
+  const timer = setTimeout(() => ctrl.abort(), pingTimeout);
   const start = performance.now();
 
   try
@@ -169,7 +211,14 @@ async function probeProxy(cfg)
 }
 
 // ---- messages from popup ----
-browser.runtime.onMessage.addListener(async (msg) => {
+browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  handleMsg(msg)
+    .then(sendResponse)
+    .catch((e) => sendResponse({ ...snapshot(), ok: false, error: e.message || "error" }));
+  return true;
+});
+
+async function handleMsg(msg) {
   switch (msg.cmd)
   {
     case "getState":
@@ -229,10 +278,53 @@ browser.runtime.onMessage.addListener(async (msg) => {
       return snapshot();
 
     case "setAutoChangeOn":
-      autoChange = !!msg.on
+      autoChange = !!msg.on;
       await saveState();
       updateIcon();
       return snapshot();
+
+    case "setAutoChangeTimeout":
+    {
+      const ms = Number(msg.ms);
+      autoChangeTimeout = Number.isFinite(ms) && ms > 0 ? ms : 30000;
+      await saveState();
+      updateIcon();
+      return snapshot();
+    }
+
+    case "setPingTimeout":
+    {
+      const ms = Number(msg.ms);
+      pingTimeout = Number.isFinite(ms) && ms > 0 ? ms : 10000;
+      await saveState();
+      updateIcon();
+      return snapshot();
+    }
+
+    case "addBypass":
+    {
+      const host = String(msg.host || "").trim().toLowerCase();
+      if (host && !bypass.includes(host)) bypass.push(host);
+      await saveState();
+      updateIcon();
+      return snapshot();
+    }
+
+    case "removeBypass":
+    {
+      bypass = bypass.filter((h) => h !== msg.host);
+      await saveState();
+      updateIcon();
+      return snapshot();
+    }
+
+    case "clearBypasses":
+    {
+      bypass = [];
+      await saveState();
+      updateIcon();
+      return snapshot();
+    }
 
     case "testProxy":
     {
@@ -287,4 +379,4 @@ browser.runtime.onMessage.addListener(async (msg) => {
       return snapshot();
     }
   }
-});
+}
