@@ -15,8 +15,7 @@ let proxyOn = false;
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
 
-browser.storage.local
-  .get(["proxies", "activeId", "proxyOn"])
+browser.storage.local.get(["proxies", "activeId", "proxyOn"])
   .then((res) => {
     proxies = res.proxies || [];
     activeId = res.activeId || null;
@@ -24,14 +23,17 @@ browser.storage.local
     updateIcon();
   });
 
-function saveState() {
+function saveState()
+{
   return browser.storage.local.set({ proxies, activeId, proxyOn });
 }
 
-function updateIcon() {
+function updateIcon()
+{
   const state = proxyOn && activeId ? "on" : "off";
   browser.browserAction.setIcon({
-    path: {
+    path:
+    {
       16: `icons/icon-${state}-16.png`,
       32: `icons/icon-${state}-32.png`,
       48: `icons/icon-${state}-48.png`,
@@ -41,52 +43,55 @@ function updateIcon() {
   });
 }
 
-function activeProxy() {
+function activeProxy()
+{
   return proxies.find((p) => p.id === activeId) || null;
 }
 
-function snapshot() {
+function snapshot()
+{
   return { proxies, activeId, proxyOn, pingResults };
 }
 
-function newId() {
+function newId()
+{
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
 // ---- validation ----
 // Every path that accepts proxy data from a message goes through this, so a
 // bad host/port can never reach browser.proxy. Returns { cfg } or { error }.
-function normalizeCfg(cfg) {
-  if (!cfg || typeof cfg !== "object") return { error: "invalid proxy" };
-
+function normalizeCfg(cfg)
+{
   const type = cfg.type;
-  if (type !== "socks" && type !== "http" && type !== "https") {
-    return { error: "type must be socks, http or https" };
-  }
-
   const host = String(cfg.host == null ? "" : cfg.host).trim();
-  if (!host) return { error: "host required" };
-  if (/[\s/\\]/.test(host)) return { error: "invalid host" };
-
   const port = Number(String(cfg.port == null ? "" : cfg.port).trim());
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    return { error: "port must be 1-65535" };
-  }
 
-  return {
-    cfg: {
-      type,
-      host,
-      port,
-      country: cfg.country ? String(cfg.country) : null,
-    },
+  if (!cfg || typeof cfg !== "object")
+    return { error: "invalid proxy" };
+
+  if (type !== "socks" && type !== "http" && type !== "https")
+    return { error: "type must be socks, http or https"};
+
+  if (!host)
+    return { error: "host required" };
+  if (/[\s/\\]/.test(host))
+    return {error: "invalid host"};
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    return {error: "port must be 1-65535"};
+
+  return {cfg: {type, host, port, country: cfg.country ? String(cfg.country) : null, },
   };
 }
 
 // ---- proxy info builder ----
-function toProxyInfo(cfg) {
-  const info = { type: cfg.type, host: cfg.host, port: Number(cfg.port) };
-  if (cfg.type === "socks") info.proxyDNS = true;
+function toProxyInfo(cfg)
+{
+  const info = {type: cfg.type, host: cfg.host, port: Number(cfg.port)};
+  if (cfg.type === "socks")
+    info.proxyDNS = true;
+
   return info;
 }
 
@@ -99,21 +104,25 @@ browser.proxy.onRequest.addListener(
   (requestInfo) => {
     // Only parse the URL while tests are pending — this listener fires on
     // every browser request, so a new URL() per call is wasteful.
-    if (pendingTests.size) {
-      try {
+    if (pendingTests.size)
+    {
+      try
+      {
         const testId = new URL(requestInfo.url).searchParams.get("__proxytest");
-        if (testId && pendingTests.has(testId)) {
+        if (testId && pendingTests.has(testId))
           return toProxyInfo(pendingTests.get(testId));
-        }
-      } catch (e) {
-        /* not a parseable URL, fall through to normal routing */
       }
+      catch (e)
+      {}
     }
 
-    if (!proxyOn) return { type: "direct" };
+    if (!proxyOn)
+      return {type: "direct"};
 
     const cfg = activeProxy();
-    if (!cfg) return { type: "direct" };
+    if (!cfg)
+      return {type: "direct"};
+
     return toProxyInfo(cfg);
   },
   { urls: ["<all_urls>"] }
@@ -130,28 +139,25 @@ browser.proxy.onError.addListener((err) => {
 const PROBE_URL = "https://www.gstatic.com/generate_204";
 const PROBE_TIMEOUT = 10000;
 
-async function probeProxy(cfg) {
+async function probeProxy(cfg)
+{
   const testId = newId();
   pendingTests.set(testId, cfg);
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT);
   const start = performance.now();
-  try {
-    const resp = await fetch(PROBE_URL + "?__proxytest=" + testId, {
-      cache: "no-store",
-      credentials: "omit",
-      signal: ctrl.signal,
-    });
+  try
+  {
+    const resp = await fetch(PROBE_URL + "?__proxytest=" + testId, {cache: "no-store", credentials: "omit", signal: ctrl.signal,});
     const ms = Math.round(performance.now() - start);
-    return resp.ok || resp.status === 204
-      ? { ok: true, ms }
-      : { ok: false, error: "HTTP " + resp.status };
-  } catch (e) {
-    return {
-      ok: false,
-      error: e.name === "AbortError" ? "timeout" : e.message || "unreachable",
-    };
-  } finally {
+    return resp.ok || resp.status === 204 ? {ok: true, ms} : {ok: false, error: "HTTP " + resp.status};
+  }
+  catch (e)
+  {
+    return {ok: false, error: e.name === "AbortError" ? "timeout" : e.message || "unreachable",};
+  }
+  finally
+  {
     clearTimeout(timer);
     pendingTests.delete(testId);
   }
@@ -159,33 +165,45 @@ async function probeProxy(cfg) {
 
 // ---- messages from popup ----
 browser.runtime.onMessage.addListener(async (msg) => {
-  switch (msg.cmd) {
+  switch (msg.cmd)
+  {
     case "getState":
       return snapshot();
 
-    case "addProxy": {
+    case "addProxy":
+    {
       const norm = normalizeCfg(msg.cfg);
-      if (norm.error) return { ...snapshot(), ok: false, error: norm.error };
+      if (norm.error)
+        return {...snapshot(), ok: false, error: norm.error};
+      
       const id = newId();
-      proxies.push({ id, ...norm.cfg });
-      if (!activeId) activeId = id; // first one added becomes selected
+      proxies.push({ id, ...norm.cfg});
+      
+      if (!activeId)
+        activeId = id; // first one added becomes selected
+
       await saveState();
       updateIcon();
-      return { ...snapshot(), ok: true };
+      return {...snapshot(), ok: true };
     }
 
-    case "removeProxy": {
+    case "removeProxy":
+    {
       proxies = proxies.filter((p) => p.id !== msg.id);
       delete pingResults[msg.id];
-      if (activeId === msg.id) {
+      
+      if (activeId === msg.id)
+      {
         activeId = proxies.length ? proxies[0].id : null;
       }
+
       await saveState();
       updateIcon();
       return snapshot();
     }
 
-    case "clearProxies": {
+    case "clearProxies":
+    {
       proxies = [];
       activeId = null;
       pingResults = {};
@@ -206,39 +224,54 @@ browser.runtime.onMessage.addListener(async (msg) => {
       updateIcon();
       return snapshot();
 
-    case "testProxy": {
+    case "testProxy":
+    {
       const cfg = proxies.find((p) => p.id === msg.id);
-      if (!cfg) return { ok: false, error: "not found" };
+
+      if (!cfg)
+        return {ok: false, error: "not found"};
+      
       const result = await probeProxy(cfg);
       pingResults[msg.id] = result;
       return result;
     }
 
-    case "testProxyCfg": {
+    case "testProxyCfg":
+    {
       // test a raw {type,host,port} without adding it to the list
       const norm = normalizeCfg(msg.cfg);
-      if (norm.error) return { ok: false, error: norm.error };
+
+      if (norm.error)
+        return {ok: false, error: norm.error};
+      
       return probeProxy(norm.cfg);
     }
 
-    case "addProxies": {
+    case "addProxies":
+    {
       // batch-add with dedup against the existing list
-      const existing = new Set(
-        proxies.map((p) => p.type + ":" + p.host + ":" + p.port)
-      );
-      for (const raw of msg.cfgs || []) {
+      const existing = new Set(proxies.map((p) => p.type + ":" + p.host + ":" + p.port));
+      for (const raw of msg.cfgs || [])
+      {
         const norm = normalizeCfg(raw);
-        if (norm.error) continue;
         const cfg = norm.cfg;
         const key = cfg.type + ":" + cfg.host + ":" + cfg.port;
-        if (existing.has(key)) continue;
+        
+        if (norm.error || existing.has(key))
+          continue;
+
         existing.add(key);
         const id = newId();
         proxies.push({ id, ...cfg });
+
         // Seed the cached ping so the popup shows it without re-probing.
-        if (raw.ping && raw.ping.ok) pingResults[id] = { ok: true, ms: raw.ping.ms };
+        if (raw.ping && raw.ping.ok)
+            pingResults[id] = {ok: true, ms: raw.ping.ms};
       }
-      if (!activeId && proxies.length) activeId = proxies[0].id;
+
+      if (!activeId && proxies.length)
+          activeId = proxies[0].id;
+
       await saveState();
       updateIcon();
       return snapshot();
