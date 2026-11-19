@@ -12,7 +12,7 @@
 let proxies = [];
 let activeId = null;
 let proxyOn = false;
-let autochange = false;
+let autoChange = false;
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
 
