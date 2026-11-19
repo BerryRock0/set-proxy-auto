@@ -75,7 +75,7 @@ $("autoChangeToggle").onchange = async (e) =>
       
         if (chosen.ok)
         {
-          send({cmd: "selectProxy", id: p.id});
+          send({cmd: "selectProxy", id: chosen.id});
           break;
         }
         else
