@@ -33,7 +33,7 @@ function currentFormCfg() {
 }
 
 function clearForm() {
-  $("proxyType").value = "socks";
+  $("proxyType").value = "socks5";
   $("proxyHost").value = "";
   $("proxyPort").value = "";
 }
