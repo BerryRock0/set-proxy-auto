@@ -91,6 +91,11 @@ async function runAutoChangeSearch() {
     if (r.ok) {
       state = await send({ cmd: "selectProxy", id: chosen.id });
       render();
+      // Bring the newly selected proxy into view.
+      const rows = document.querySelectorAll("#list .proxy");
+      for (const row of rows) {
+        if (row.classList.contains("active")) row.scrollIntoView({ block: "nearest" });
+      }
       if (state.proxyOn) refreshActivePing();
       break;
     }
