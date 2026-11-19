@@ -65,17 +65,19 @@ $("autoChangeToggle").onchange = async (e) =>
   state = await send({cmd: "setAutoChangeOn", on: e.target.checked});
   if(state.autoChange)
   {
-    const tP = send({ cmd: "testProxy", id });
+    const tP = send({cmd: "testProxy", id});
     if (tP.ok)
       return;
-
-    for (const p of state.proxies)
-    {
-      if (!r.ok)
-        continue;
+    else 
+      for (const chosen of state.proxies)
+      {
+        send({cmd: "testProxy", chosen.id})
       
-      send({ cmd: "selectProxy", id: p.id });
-    }
+        if (chosen.ok)
+          send({cmd: "selectProxy", id: p.id});
+        else
+          continue;
+      }
   }
 };
 
