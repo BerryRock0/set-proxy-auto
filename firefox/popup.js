@@ -236,7 +236,10 @@ function render() {
     radio.onchange = async () => {
       state = await send({ cmd: "selectProxy", id: p.id });
       render();
-      if (state.proxyOn) refreshActivePing();
+      if (state.proxyOn) {
+        refreshActivePing();
+        if (state.autoChange) runAutoChangeSearch();
+      }
     };
 
     const type = document.createElement("span");
