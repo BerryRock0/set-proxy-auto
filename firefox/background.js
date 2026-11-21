@@ -19,6 +19,11 @@ let pingTimeout = 10000;
 let bypass = [];
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
+// AutoChange watchdog: periodically probes the active proxy while AutoChange
+// is on and the proxy is on (proxy.onError alone is not reliable for real proxy
+// failures in Firefox, so we drive the check from state changes + a timer).
+let autoSwitchTimer = null;
+const AUTOSWITCH_INTERVAL_MS = 10000;
 
 browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange", "autoChangeTimeout", "pingTimeout", "bypass"])
   .then((res) => {
@@ -30,6 +35,7 @@ browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange", "auto
     pingTimeout = Number(res.pingTimeout) || 10000;
     bypass = Array.isArray(res.bypass) ? res.bypass.map(String) : [];
     updateIcon();
+    scheduleAutoSwitch();
   });
 
 function saveState()
@@ -119,11 +125,9 @@ const pendingTests = new Map();
 
 browser.proxy.onRequest.addListener(
   (requestInfo) => {
-    // Bypass list wins: these hosts never go through a proxy.
-    let hostname = null;
-    try { hostname = new URL(requestInfo.url).hostname; } catch (e) {}
-    if (hostname && isBypassed(hostname)) return {type: "direct"};
-
+    // Ad-hoc __proxytest requests take priority and are never subject to the
+    // bypass list — bypassing here would turn a probe into a direct connection
+    // and produce a false positive.
     // Only parse the URL while tests are pending — this listener fires on
     // every browser request, so a new URL() per call is wasteful.
     if (pendingTests.size)
@@ -137,6 +141,11 @@ browser.proxy.onRequest.addListener(
       catch (e)
       {}
     }
+
+    // Bypass list wins: these hosts never go through a proxy.
+    let hostname = null;
+    try { hostname = new URL(requestInfo.url).hostname; } catch (e) {}
+    if (hostname && isBypassed(hostname)) return {type: "direct"};
 
     if (!proxyOn)
       return {type: "direct"};
@@ -155,7 +164,16 @@ browser.proxy.onError.addListener((err) => {
   maybeAutoSwitch();
 });
 
-// AutoChange: when the active proxy errors out, switch to another working one.
+// (Re)start the AutoChange watchdog while it is armed.
+function scheduleAutoSwitch()
+{
+  if (autoSwitchTimer) clearInterval(autoSwitchTimer);
+  autoSwitchTimer = null;
+  if (autoChange && proxyOn)
+    autoSwitchTimer = setInterval(() => maybeAutoSwitch(), AUTOSWITCH_INTERVAL_MS);
+}
+
+// AutoChange: when the active proxy fails, switch to another working one.
 async function maybeAutoSwitch()
 {
   if (!autoChange || !proxyOn) return;
@@ -274,18 +292,27 @@ async function handleMsg(msg) {
       delete pingResults[msg.id];
       await saveState();
       updateIcon();
+      // AutoChange: if proxies are on and AutoChange is enabled, make sure we
+      // end up on a working proxy (probe + switch). Firefox's proxy.onError is
+      // unreliable for real proxy failures, so drive it from state changes too.
+      if (proxyOn && autoChange) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setProxyOn":
       proxyOn = !!msg.on;
       await saveState();
       updateIcon();
+      if (proxyOn && autoChange) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setAutoChangeOn":
       autoChange = !!msg.on;
       await saveState();
       updateIcon();
+      if (autoChange && proxyOn) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setAutoChangeTimeout":

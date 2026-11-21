@@ -253,10 +253,10 @@ function render() {
     const ping = document.createElement("span");
     ping.className = "ping";
     pingEls.set(p.id, ping);
-    // Cached from a previous probe or from the free-proxy scan; re-probing
-    // only happens on an explicit Test.
-    const cached = state.pingResults && state.pingResults[p.id];
-    if (cached) showResult(ping, cached);
+    // No cache: latency/status indicators are shown only from fresh probes,
+    // so they can never go stale or show false values.
+    ping.className = "ping";
+    ping.textContent = "";
 
     const addr = document.createElement("span");
     addr.className = "addr";

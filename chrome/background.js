@@ -107,7 +107,7 @@ function proxyScheme(type) {
 // Resolves { ok: true } or { error } — Chrome reports rejected settings via
 // chrome.runtime.lastError, which is easy to miss, so we check it explicitly
 // instead of assuming the write succeeded.
-function setProxySettings(cfg) {
+function setProxySettings(cfg, bypassList = bypass) {
   return new Promise((resolve) => {
     const done = () => {
       const err = chrome.runtime.lastError;
@@ -123,7 +123,7 @@ function setProxySettings(cfg) {
       {
         value: {
           mode: "fixed_servers",
-          bypassList: bypass,
+          bypassList,
           rules: {
             singleProxy: {
               scheme: proxyScheme(cfg.type),
@@ -247,18 +247,24 @@ async function handleMsg(msg) {
       delete pingResults[msg.id];
       await saveState();
       updateIcon();
+      await applyProxy();
+      // AutoChange: if proxies are on and AutoChange is enabled, make sure we
+      // end up on a working proxy (probe + switch).
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return { ...snapshot(), ...(await applyProxy()) };
 
     case "setProxyOn":
       proxyOn = !!msg.on;
       await saveState();
       updateIcon();
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return { ...snapshot(), ...(await applyProxy()) };
 
     case "setAutoChangeOn":
       autoChange = !!msg.on;
       await saveState();
       updateIcon();
+      if (autoChange && proxyOn) await maybeAutoSwitch();
       return snapshot();
 
     case "setAutoChangeTimeout":
@@ -369,7 +375,7 @@ async function runTestInner(cfg) {
   if (scanCancelled) return { ok: false, error: "cancelled" };
   if (!cfg.host || !cfg.port) return { ok: false, error: "host/port required" };
 
-  const install = await setProxySettings(cfg);
+  const install = await setProxySettings(cfg, []); // probes must not be bypassed (false positives)
   if (!install.ok) return { ok: false, error: install.error };
   if (scanCancelled) return { ok: false, error: "cancelled" };
 
