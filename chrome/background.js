@@ -247,18 +247,24 @@ async function handleMsg(msg) {
       delete pingResults[msg.id];
       await saveState();
       updateIcon();
+      await applyProxy();
+      // AutoChange: if proxies are on and AutoChange is enabled, make sure we
+      // end up on a working proxy (probe + switch).
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return { ...snapshot(), ...(await applyProxy()) };
 
     case "setProxyOn":
       proxyOn = !!msg.on;
       await saveState();
       updateIcon();
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return { ...snapshot(), ...(await applyProxy()) };
 
     case "setAutoChangeOn":
       autoChange = !!msg.on;
       await saveState();
       updateIcon();
+      if (autoChange && proxyOn) await maybeAutoSwitch();
       return snapshot();
 
     case "setAutoChangeTimeout":

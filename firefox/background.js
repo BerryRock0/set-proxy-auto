@@ -277,18 +277,24 @@ async function handleMsg(msg) {
       delete pingResults[msg.id];
       await saveState();
       updateIcon();
+      // AutoChange: if proxies are on and AutoChange is enabled, make sure we
+      // end up on a working proxy (probe + switch). Firefox's proxy.onError is
+      // unreliable for real proxy failures, so drive it from state changes too.
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return snapshot();
 
     case "setProxyOn":
       proxyOn = !!msg.on;
       await saveState();
       updateIcon();
+      if (proxyOn && autoChange) await maybeAutoSwitch();
       return snapshot();
 
     case "setAutoChangeOn":
       autoChange = !!msg.on;
       await saveState();
       updateIcon();
+      if (autoChange && proxyOn) await maybeAutoSwitch();
       return snapshot();
 
     case "setAutoChangeTimeout":
