@@ -176,12 +176,14 @@ async function maybeAutoSwitch() {
   if (!active) return;
 
   const result = await runTest(active);
+  pingResults[active.id] = result;
   if (result.ok) return;
 
   for (const chosen of proxies) {
     if (chosen.id === active.id) continue;
     const r = await runTest(chosen);
     if (r.ok) {
+      pingResults[chosen.id] = r;
       activeId = chosen.id;
       await saveState();
       updateIcon();
@@ -240,6 +242,9 @@ async function handleMsg(msg) {
 
     case "selectProxy":
       activeId = msg.id;
+      // Drop the cached ping for the newly selected proxy — a previous value
+      // here can be stale (e.g. it was cached before the proxy went bad).
+      delete pingResults[msg.id];
       await saveState();
       updateIcon();
       return { ...snapshot(), ...(await applyProxy()) };

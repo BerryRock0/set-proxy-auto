@@ -180,9 +180,13 @@ async function refreshActivePing()
   setActivePing("...");
 
   const id = state.activeId;
+  const rowEl = pingEls.get(id);
   const r = await send({ cmd: "testProxy", id });
   // The popup may have been toggled off or reselected while we waited.
   if (!state.proxyOn || state.activeId !== id) return;
+  // Keep the row-level latency/status in sync with the fresh result — it may
+  // have been showing a stale cached value from before an AutoChange switch.
+  if (rowEl) showResult(rowEl, r);
   if (r.ok) setActivePing(r.ms + " ms", "ok");
   else setActivePing(shortErr(r.error), "bad");
 }
