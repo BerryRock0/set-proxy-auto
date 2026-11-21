@@ -229,7 +229,10 @@ function render() {
       const res = await send({ cmd: "selectProxy", id: p.id });
       state = res;
       render();
-      if (state.proxyOn) refreshActivePing();
+      if (state.proxyOn) {
+        refreshActivePing();
+        if (state.autoChange) runAutoChangeSearch();
+      }
       if (res.error) setMsg($("proxyMsg"), res.error, "bad");
     };
 
