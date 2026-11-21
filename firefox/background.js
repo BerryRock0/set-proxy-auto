@@ -19,6 +19,11 @@ let pingTimeout = 10000;
 let bypass = [];
 // In-memory only: survives popup closes, disappears with Firefox/background shutdown.
 let pingResults = {};
+// AutoChange watchdog: periodically probes the active proxy while AutoChange
+// is on and the proxy is on (proxy.onError alone is not reliable for real proxy
+// failures in Firefox, so we drive the check from state changes + a timer).
+let autoSwitchTimer = null;
+const AUTOSWITCH_INTERVAL_MS = 10000;
 
 browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange", "autoChangeTimeout", "pingTimeout", "bypass"])
   .then((res) => {
@@ -30,6 +35,7 @@ browser.storage.local.get(["proxies", "activeId", "proxyOn", "autoChange", "auto
     pingTimeout = Number(res.pingTimeout) || 10000;
     bypass = Array.isArray(res.bypass) ? res.bypass.map(String) : [];
     updateIcon();
+    scheduleAutoSwitch();
   });
 
 function saveState()
@@ -158,7 +164,16 @@ browser.proxy.onError.addListener((err) => {
   maybeAutoSwitch();
 });
 
-// AutoChange: when the active proxy errors out, switch to another working one.
+// (Re)start the AutoChange watchdog while it is armed.
+function scheduleAutoSwitch()
+{
+  if (autoSwitchTimer) clearInterval(autoSwitchTimer);
+  autoSwitchTimer = null;
+  if (autoChange && proxyOn)
+    autoSwitchTimer = setInterval(() => maybeAutoSwitch(), AUTOSWITCH_INTERVAL_MS);
+}
+
+// AutoChange: when the active proxy fails, switch to another working one.
 async function maybeAutoSwitch()
 {
   if (!autoChange || !proxyOn) return;
@@ -281,6 +296,7 @@ async function handleMsg(msg) {
       // end up on a working proxy (probe + switch). Firefox's proxy.onError is
       // unreliable for real proxy failures, so drive it from state changes too.
       if (proxyOn && autoChange) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setProxyOn":
@@ -288,6 +304,7 @@ async function handleMsg(msg) {
       await saveState();
       updateIcon();
       if (proxyOn && autoChange) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setAutoChangeOn":
@@ -295,6 +312,7 @@ async function handleMsg(msg) {
       await saveState();
       updateIcon();
       if (autoChange && proxyOn) await maybeAutoSwitch();
+      scheduleAutoSwitch();
       return snapshot();
 
     case "setAutoChangeTimeout":
