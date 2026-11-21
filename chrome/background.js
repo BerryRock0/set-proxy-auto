@@ -107,7 +107,7 @@ function proxyScheme(type) {
 // Resolves { ok: true } or { error } — Chrome reports rejected settings via
 // chrome.runtime.lastError, which is easy to miss, so we check it explicitly
 // instead of assuming the write succeeded.
-function setProxySettings(cfg) {
+function setProxySettings(cfg, bypassList = bypass) {
   return new Promise((resolve) => {
     const done = () => {
       const err = chrome.runtime.lastError;
@@ -123,7 +123,7 @@ function setProxySettings(cfg) {
       {
         value: {
           mode: "fixed_servers",
-          bypassList: bypass,
+          bypassList,
           rules: {
             singleProxy: {
               scheme: proxyScheme(cfg.type),
@@ -369,7 +369,7 @@ async function runTestInner(cfg) {
   if (scanCancelled) return { ok: false, error: "cancelled" };
   if (!cfg.host || !cfg.port) return { ok: false, error: "host/port required" };
 
-  const install = await setProxySettings(cfg);
+  const install = await setProxySettings(cfg, []); // probes must not be bypassed (false positives)
   if (!install.ok) return { ok: false, error: install.error };
   if (scanCancelled) return { ok: false, error: "cancelled" };
 

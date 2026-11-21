@@ -119,11 +119,9 @@ const pendingTests = new Map();
 
 browser.proxy.onRequest.addListener(
   (requestInfo) => {
-    // Bypass list wins: these hosts never go through a proxy.
-    let hostname = null;
-    try { hostname = new URL(requestInfo.url).hostname; } catch (e) {}
-    if (hostname && isBypassed(hostname)) return {type: "direct"};
-
+    // Ad-hoc __proxytest requests take priority and are never subject to the
+    // bypass list — bypassing here would turn a probe into a direct connection
+    // and produce a false positive.
     // Only parse the URL while tests are pending — this listener fires on
     // every browser request, so a new URL() per call is wasteful.
     if (pendingTests.size)
@@ -137,6 +135,11 @@ browser.proxy.onRequest.addListener(
       catch (e)
       {}
     }
+
+    // Bypass list wins: these hosts never go through a proxy.
+    let hostname = null;
+    try { hostname = new URL(requestInfo.url).hostname; } catch (e) {}
+    if (hostname && isBypassed(hostname)) return {type: "direct"};
 
     if (!proxyOn)
       return {type: "direct"};
